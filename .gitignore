@@ -1,0 +1,21 @@
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Virtual Environments and Python Dependencies ---
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Streamlit Cache and Temporary Data ---
+.streamlit/runtime/
+
+# --- Large Local Data or Editor Configuration Files ---
+.vscode/
+.idea/
+data/raw/*
+!data/raw/.gitkeep
