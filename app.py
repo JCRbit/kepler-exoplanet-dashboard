@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ==============================================================================
-# 0. CÁLCULO DINÁMICO DE RUTAS ABSOLUTAS
+# 0. DYNAMIC CALCULATION OF ABSOLUTE PATHS
 # ==============================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -15,13 +15,12 @@ ICON_PATH = os.path.join(BASE_DIR, "assets", "kepler-22b.png")
 KEPLER_PATH = os.path.join(BASE_DIR, "assets", "kepler-telescope.png")
 DIVIDER_PATH = os.path.join(BASE_DIR, "assets", "kepler-exoplanets.png")
 
-# IMPORTACIONES DE NUESTROS MÓDULOS PROPIOS
 from src.utils import get_base64_image
 from src.styles import inject_custom_css, SCATTER_COLORS, EXECUTIVE_COLORS
 from src.metrics import process_and_translate_data, calculate_radar_statistics
 
 # ==============================================================================
-# 1. CONFIGURACIÓN DE PÁGINA E INYECCIÓN DE ESTILOS
+# 1. PAGE CONFIGURATION AND STYLE INJECTION
 # ==============================================================================
 st.set_page_config(
     page_title="Exoplanetas. Misión Kepler",
@@ -33,7 +32,7 @@ st.set_page_config(
 inject_custom_css()
 
 # ==============================================================================
-# 2. CARGA EFICIENTE DE DATOS (CON CACHE)
+# 2. EFFICIENT DATA LOADING (WITH CACHING)
 # ==============================================================================
 @st.cache_data
 def load_data_wrapper():
@@ -46,49 +45,70 @@ except FileNotFoundError:
     st.stop()
 
 # ==============================================================================
-# 3. SIDEBAR / FILTROS
+# 3. SIDEBAR / FILTERS
 # ==============================================================================
 st.sidebar.markdown("<h3 style='font-size:16px; color:#ffffff;'>FILTROS</h3>", unsafe_allow_html=True)
 
-# Filtros Categóricos Existentes
+# Categorical Filters
 selected_disp = st.sidebar.multiselect("Estado de Validación:", options=df['koi_disposition'].unique().tolist(), default=df['koi_disposition'].unique().tolist())
 selected_type = st.sidebar.multiselect("Clasificación del Planeta:", options=df['planet_type'].unique().tolist(), default=df['planet_type'].unique().tolist())
 
-st.sidebar.markdown("---") # Separador visual
+st.sidebar.markdown("---")
 
-# --- NUEVOS FILTROS TIPO SLIDER ---
-# Filtro de Radio Planetario (koi_prad)
-min_prad = float(df['koi_prad'].min())
+# Slider Filters
+# Planetary Radius Filter (koi_prad) - Log Scale
+min_prad = max(0.01, float(df['koi_prad'].min())) # Avoid 0 for geometric space calculation
 max_prad = float(df['koi_prad'].max())
-selected_prad = st.sidebar.slider(
-    "Radio del Planeta ($R_\\oplus$):",
-    min_value=min_prad,
-    max_value=max_prad,
-    value=(min_prad, max_prad), 
-    step=0.1 if max_prad < 100 else 1.0
+
+# Generate logarithmically spaced points for the slider options
+prad_options = np.geomspace(min_prad, max_prad, num=400)
+prad_options = sorted(list(set([round(x, 2) if x < 10 else round(x, 1) for x in prad_options])))
+
+selected_prad = st.sidebar.select_slider(
+    "Planet Radius ($R_\\oplus$):",
+    options=prad_options,
+    value=(prad_options[0], prad_options[-1])
 )
 
-# Filtro de Temperatura Eficaz (koi_teq)
-min_teq = int(df['koi_teq'].min())
-max_teq = int(df['koi_teq'].max())
-selected_teq = st.sidebar.slider(
-    "Temperatura Planetaria ($K$):",
-    min_value=min_teq,
-    max_value=max_teq,
-    value=(min_teq, max_teq), 
-    step=10
+# 2. Equilibrium Temperature Filter (koi_teq) - Log Scale
+min_teq = max(1.0, float(df['koi_teq'].min()))
+max_teq = float(df['koi_teq'].max())
+
+# Generate logarithmically spaced points for temperature options
+teq_options = np.geomspace(min_teq, max_teq, num=300)
+teq_options = sorted(list(set([int(round(x)) for x in teq_options])))
+
+selected_teq = st.sidebar.select_slider(
+    "Planet Temperature ($K$):",
+    options=teq_options,
+    value=(teq_options[0], teq_options[-1])
 )
 
-# Aplicación combinada de todos los filtros al DataFrame
+# 3. Orbital Period Filter (koi_period) - Log Scale
+min_period = max(0.1, float(df['koi_period'].min()))
+max_period = float(df['koi_period'].max())
+
+# Generate logarithmically spaced points for the orbital period options
+period_options = np.geomspace(min_period, max_period, num=500)
+period_options = sorted(list(set([round(x, 2) if x < 10 else round(x, 1) for x in period_options])))
+
+selected_period = st.sidebar.select_slider(
+    "Orbital Period (Days):",
+    options=period_options,
+    value=(period_options[0], period_options[-1])
+)
+
+# Combined application of all filters to the DataFrame
 df_filtered = df[
     (df['koi_disposition'].isin(selected_disp)) & 
     (df['planet_type'].isin(selected_type)) &
     (df['koi_prad'].between(selected_prad[0], selected_prad[1])) &
-    (df['koi_teq'].between(selected_teq[0], selected_teq[1]))
+    (df['koi_teq'].between(selected_teq[0], selected_teq[1])) &
+    (df['koi_period'].between(selected_period[0], selected_period[1]))
 ]
 
 # ==============================================================================
-# 4. ENCABEZADO Y KPIs
+# 4. HEADER AND KPIs
 # ==============================================================================
 try:
     img_base64 = get_base64_image(ICON_PATH)  
@@ -106,7 +126,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Control de contingencia si el filtro deja el dataframe vacío
+# Control if the filter leaves the dataframe empty
 if df_filtered.empty:
     st.warning("No hay exoplanetas que cumplan con los criterios seleccionados. Intenta ampliar los rangos de los filtros.")
     st.stop()
@@ -122,10 +142,10 @@ with kpi_col3:
     st.markdown(f'<div class="executive-card"><div class="kpi-label">Potencialmente Habitables</div><div class="kpi-val">{hab_count}</div></div>', unsafe_allow_html=True)
 
 # ==============================================================================
-# 5. MATRIZ GRÁFICA (PRESENTACIÓN DE COMPONENTES VISUALES)
+# 5. GRAPHICS MATRIX (VISUAL COMPONENT PRESENTATION)
 # ==============================================================================
 
-# --- LÍNEA 1: Scatter Plot Habitabilidad ---
+# --- ROW 1: Habitability Scatter Plot ---
 with st.container(border=True):
     st.markdown("<h3 style='font-size:15px; margin-top:0px;'>Análisis de Habitabilidad: Temperatura vs Radio Planetario</h3>", unsafe_allow_html=True)
     
@@ -153,7 +173,7 @@ with st.container(border=True):
     )
     st.plotly_chart(fig1, use_container_width=True)
 
-# --- LÍNEA 2: Anillos Concéntricos vs Perfil Topológico Radar ---
+# --- ROW 2: Concentric Rings vs Radar Topological Profile ---
 fila2_col1, fila2_col2 = st.columns(2)
 
 with fila2_col1:
@@ -250,8 +270,13 @@ with fila2_col2:
                     r=r_values, 
                     theta=theta_labels, 
                     name=cat, 
-                    mode='lines',
-                    line=dict(color=color_asignado, width=2.5), 
+                    # mode='lines',
+                    line=dict(color=color_asignado, width=2.5),
+                    marker=dict(
+                            size=12,
+                            color='rgba(0,0,0,0)',
+                            line=dict(color='rgba(0,0,0,0)', width=0)
+                        ),
                     fill='toself',
                     fillcolor=f"rgba{tuple(int(color_asignado.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)) + (0.05,)}",
                     text=text_hover, 
@@ -272,7 +297,7 @@ with fila2_col2:
         else:
             st.warning("Seleccione elementos en los filtros para generar la topología de radar.")
 
-# --- LÍNEA 3: Ridgeline Plot vs Insolación ---
+# --- ROW 3: Ridgeline Plot vs Insolation Flow ---
 fila3_col1, fila3_col2 = st.columns(2)
 
 with fila3_col1:
@@ -316,8 +341,9 @@ with fila3_col2:
 
 
 # ==============================================================================
-# GOBERNANZA DE DATOS Y ADVERTENCIA DE SESGOS DETECTADOS
+# 6. DATA GOVERNANCE AND DETECTED BIASES WARNING
 # ==============================================================================
+
 try:
     divider_base64 = get_base64_image(DIVIDER_PATH)  
     src_divider = f"data:image/jpeg;base64,{divider_base64}"
@@ -352,15 +378,15 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# --- SECCIÓN GRANDE 1: GOBERNANZA ---
+# --- 6.1: GOVERNANCE ---
 gob_fila1_col1, gob_fila1_col2 = st.columns([1, 3], gap="large")
 
 with gob_fila1_col1:
-    # Título principal en la columna izquierda limpia
+    # Main title in first column
     st.markdown("<div style='font-size: 16px; font-weight: 600; margin-top: 10px; margin-bottom: 30px;'><font color='#4cc3b9'>Gobernanza y Origen de los Datos</font></div>", unsafe_allow_html=True)    
 
 with gob_fila1_col2:
-    with st.container(border=True): # Único contenedor visual de Gobernanza
+    with st.container(border=True):
         st.markdown(
             """
             Los datos utilizados provienen originalmente del [**Archivo de Exoplanetas de la NASA**](https://exoplanetarchive.ipac.caltech.edu/cgi-bin/TblView/nph-tblView?app=ExoTbls&config=cumulative), 
@@ -374,22 +400,23 @@ with gob_fila1_col2:
 
 st.markdown("<div style='margin-bottom: 25px;'></div>", unsafe_allow_html=True)
 
-# --- SECCIÓN GRANDE 2: ANÁLISIS DE SESGOS ---
+# --- 6.2. BIAS ANALYSIS ---
 
 gob_fila2_col1, gob_fila2_col2 = st.columns([1, 3], gap="large")
 
 with gob_fila2_col1:
-    # Título principal de la sección en la primera columna
+    # Section main title in first column
     st.markdown("<div style='font-size: 16px; font-weight: 600; margin-top: 10px; margin-bottom: 30px;'><font color='#4cc3b9'>Análisis de Sesgos en los Datos</font></div>", unsafe_allow_html=True)    
-    # Subtítulo A en la primera columna
+    
+    # Subtitle bias A in first column
     st.markdown("<div style='margin-top: 0px;'></div>", unsafe_allow_html=True)
     st.markdown("<h4 style='font-size:14px; font-weight:600; color:#4cc3b9;'>Sesgo de Selección por Método de Tránsito</h4>", unsafe_allow_html=True)
     
-    # Subtítulo B en la primera columna
+    # Subtitle bias B in first column
     st.markdown("<div style='margin-top: 550px;'></div>", unsafe_allow_html=True)
     st.markdown("<h4 style='font-size:14px; font-weight:600; color:#4cc3b9;'>Sesgo de Supervivencia y Falsos Positivos</h4>", unsafe_allow_html=True)
     
-    # Subtítulo C en la primera columna
+    # Subtitle bias C in first column
     st.markdown("<div style='margin-top: 110px;'></div>", unsafe_allow_html=True)
     st.markdown("<h4 style='font-size:14px; font-weight:600; color:#4cc3b9;'>Sesgo de Clasificación en el Perfil Topológico</h4>", unsafe_allow_html=True)
 
@@ -402,7 +429,7 @@ with gob_fila2_col2:
             """
         )
         
-        # --- Contenido del Sesgo A ---
+        # --- Bias A Content ---
         st.markdown(
             """
             La misión Kepler detecta exoplanetas utilizando el método de tránsito (la caída en la luz de una estrella cuando un planeta pasa frente a ella). Esto genera un sesgo masivo hacia:
@@ -411,7 +438,7 @@ with gob_fila2_col2:
             """
         )
         
-        # GRÁFICA DE BARRAS ABSOLUTAS
+        # ABSOLUTE BAR CHART
         if not df_filtered.empty:
             df_bias_chart = df_filtered.groupby(['planet_type', 'koi_disposition']).size().reset_index(name='frecuencia')
             orden_columnas_x = ["Gigante gaseoso (tipo Júpiter)", "Gaseoso menor (Neptuniano)", "Súper-Tierra", "Terrestre (tipo Tierra)"]
@@ -438,18 +465,14 @@ with gob_fila2_col2:
             fig_bias.update_traces(textfont=dict(size=10, color="#ffffff"))
             st.plotly_chart(fig_bias, use_container_width=True)
 
-        # st.markdown("<hr style='border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;'>", unsafe_allow_html=True)
-
-        # --- Contenido del Sesgo B ---
+        # --- Bias B Content ---
         st.markdown(
             """
             El dataset contiene un volumen elevado de registros clasificados originalmente como *False Positive* o *Candidate*. La gráfica de habitabilidad y la distribución de periodos orbitales están fuertemente condicionadas por objetos que aún no han sido confirmados por observaciones de seguimiento (como velocidad radial o imagen directa). Eliminar o filtrar estos estados distorsiona la distribución real de las observaciones de la misión.
             """
         )
 
-        # st.markdown("<hr style='border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;'>", unsafe_allow_html=True)
-
-        # --- Contenido del Sesgo C ---
+        # --- Bias C Content ---
         st.markdown(
             """
             En el gráfico de radar, variables como el flujo de insolación (`koi_insol`) o la temperatura del planeta (`koi_teq`) se calculan a partir de modelos teóricos de equilibrio térmico de albedo cero. No representan mediciones atmosféricas reales. Por lo tanto, el volumen de planetas etiquetados como *\"Potencialmente Habitables\"* es un sesgo de criba preliminar y no implica habitabilidad biológica confirmada.
